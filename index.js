@@ -1,13 +1,13 @@
 const express = require('express');
 const cors = require('cors');
-const { MongoClient, ServerApiVersion } = require('mongodb');
+const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 const jwt = require('jsonwebtoken');
 const res = require('express/lib/response');
 const { verify } = require('jsonwebtoken');
 const app=express()
 require('dotenv').config()
 const port=process.env.PORT||5000
-
+const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY)
 app.use(express.json())
 app.use(cors())
 
@@ -41,6 +41,7 @@ const run=async()=>{
             const bookingCollection=client.db('doctor_protal').collection('booking')
             const userCollection=client.db('doctor_protal').collection('user')
             const doctorCollection=client.db('doctor_protal').collection('doctor')
+            const paymentCollection=client.db('doctor_protal').collection('payment')
 
             const verifyAdmin= async(req,res,next)=>{
                 const requstEmail=req.decoded.email;
@@ -52,6 +53,19 @@ const run=async()=>{
                     res.status(403).send({message:"forbidden"})
                 }
             }
+
+
+            app.post('/create-payment-intent',varyfyJTW, async(req,res)=>{
+                const service=req.body;
+                const price=service.price;
+                const amount=price*100;
+                const paymentIntent=await stripe.paymentIntents.create({
+                    amount:amount,
+                    currency:"usd",
+                    payment_method_types:['card']
+                });
+                res.send({clientSecret: paymentIntent.client_secret})
+            })
 
             app.get('/services',async(req,res)=>{
                 const quary={}
@@ -110,6 +124,29 @@ const run=async()=>{
                 }
               
             })
+            app.get('/booking/:id', async(req,res)=>{
+                const id=req.params.id;
+                const quary={_id:ObjectId(id)}
+                const result= await bookingCollection.findOne(quary);
+                res.send(result)
+            })
+
+            app.patch('/booking/:id',varyfyJTW,async(req,res)=>{
+                const id= req.params.id;
+                const payment= req.body;
+                const filter={_id:ObjectId(id)}
+                const updateDoc={
+                    $set:{
+                        paid:true,
+                        transactionId:payment.transactionId
+                    }
+                }
+                const result= await paymentCollection.insertOne(payment)
+                const updatedBooking=await bookingCollection.updateOne(filter,updateDoc);
+                res.send(updateDoc)
+            })
+
+
             app.put('/user/admin/:email' , varyfyJTW,verifyAdmin, async(req,res)=>{
                 const email =req.params.email;
                 const filter={email:email}
